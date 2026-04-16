@@ -61,7 +61,7 @@ export default function LandingPage() {
         try {
             const share = await createShare(options)
             setShowCreateModal(false)
-            navigate(`/share-created/${share.access_code}`)
+            navigate(`/workspace/${share.access_code}`)
         } catch (err) {
             console.error(err)
             setError('Failed to create share. Please try again.')
@@ -85,14 +85,6 @@ export default function LandingPage() {
                         <div className="hidden md:flex items-center gap-8">
                             <a className="text-sm font-medium hover:text-[#136dec] transition-colors" href="#features">Features</a>
                             <a className="text-sm font-medium hover:text-[#136dec] transition-colors" href="#security">Security</a>
-                        </div>
-                        <div className="flex items-center gap-4">
-                            <button
-                                onClick={() => setShowCreateModal(true)}
-                                className="px-5 py-2 text-sm font-semibold border-2 border-[#136dec] text-[#136dec] hover:bg-[#136dec] hover:text-white rounded-full transition-all"
-                            >
-                                Start New Share
-                            </button>
                         </div>
                     </div>
                 </div>
