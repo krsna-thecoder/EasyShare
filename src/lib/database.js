@@ -149,14 +149,24 @@ export async function uploadFile(shareId, accessCode, file) {
 }
 
 /**
- * Get public URL for a file
+ * Get a signed URL for a file after share validation
  */
-export function getFileUrl(storagePath) {
-    const { data } = supabase.storage
-        .from('shares')
-        .getPublicUrl(storagePath)
+export async function getSignedFileUrl(accessCode, storagePath, password = null) {
+    const { data, error } = await supabase.functions.invoke('share-ops', {
+        body: {
+            action: 'sign',
+            accessCode,
+            storagePath,
+            password
+        }
+    })
 
-    return data.publicUrl
+    if (error) throw error
+    if (!data?.signedUrl) {
+        throw new Error('Failed to generate secure download link')
+    }
+
+    return data.signedUrl
 }
 
 /**

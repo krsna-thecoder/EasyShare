@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { getShare, updateShareContent, getShareFiles, uploadFile, getFileUrl, canUploadFile, getShareStorageUsed, verifyPassword } from '../lib/database'
+import { getShare, updateShareContent, getShareFiles, uploadFile, getSignedFileUrl, canUploadFile, getShareStorageUsed, verifyPassword } from '../lib/database'
 import PasswordModal from '../components/PasswordModal'
 
 export default function WorkspacePage() {
@@ -17,6 +17,8 @@ export default function WorkspacePage() {
     const [timeLeft, setTimeLeft] = useState('')
     const [showPasswordModal, setShowPasswordModal] = useState(false)
     const [isAuthenticated, setIsAuthenticated] = useState(false)
+    const [sharePassword, setSharePassword] = useState('')
+    const [downloadingFileId, setDownloadingFileId] = useState(null)
     const [error, setError] = useState('')
 
     useEffect(() => {
@@ -82,6 +84,7 @@ export default function WorkspacePage() {
     const handlePasswordSubmit = async (password) => {
         const isValid = await verifyPassword(accessCode, password)
         if (isValid) {
+            setSharePassword(password)
             setIsAuthenticated(true)
             setShowPasswordModal(false)
             loadShare()
@@ -134,6 +137,27 @@ export default function WorkspacePage() {
         }
     }
 
+    const handleDownloadFile = async (file) => {
+        setError('')
+        setDownloadingFileId(file.id)
+
+        try {
+            const requiresPassword = Boolean(share?.password_hash)
+            const signedUrl = await getSignedFileUrl(
+                accessCode,
+                file.storage_path,
+                requiresPassword ? sharePassword : null
+            )
+
+            window.open(signedUrl, '_blank', 'noopener,noreferrer')
+        } catch (err) {
+            console.error(err)
+            setError('Failed to download file. Please verify access and try again.')
+        } finally {
+            setDownloadingFileId(null)
+        }
+    }
+
     const formatBytes = (bytes) => {
         if (bytes === 0) return '0 B'
         const k = 1024
@@ -176,17 +200,19 @@ export default function WorkspacePage() {
             {/* Header */}
             <header className="h-16 flex-none bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 flex items-center justify-between z-50">
                 <div className="flex items-center gap-8">
-                    <Link to="/" className="flex items-center gap-3">
+                    <div className="flex items-center gap-3">
                         <div className="w-8 h-8 text-[#136dec]">
                             <svg fill="currentColor" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
                                 <path d="M42.4379 44C42.4379 44 36.0744 33.9038 41.1692 24C46.8624 12.9336 42.2078 4 42.2078 4L7.01134 4C7.01134 4 11.6577 12.932 5.96912 23.9969C0.876273 33.9029 7.27094 44 7.27094 44L42.4379 44Z"></path>
                             </svg>
                         </div>
-                        <div className="flex flex-col">
+                        <div className="flex items-center gap-3">
                             <h1 className="text-lg font-bold leading-none">AccessCode</h1>
-                            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-tighter">ID: {accessCode}</span>
+                            <span className="px-3 py-1 rounded-md bg-[#136dec] text-base font-mono font-extrabold text-white uppercase tracking-wider shadow-sm">
+                                ID: {accessCode}
+                            </span>
                         </div>
-                    </Link>
+                    </div>
                 </div>
 
                 {/* Time Progress */}
@@ -201,7 +227,10 @@ export default function WorkspacePage() {
                 </div>
 
                 <div className="flex items-center gap-4">
-                    <button className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm font-semibold hover:bg-slate-200 transition">
+                    <button
+                        onClick={() => navigate(`/share-created/${accessCode}`)}
+                        className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm font-semibold hover:bg-slate-200 transition"
+                    >
                         <span className="material-symbols-outlined text-lg">share</span>
                         Share Code
                     </button>
@@ -377,15 +406,14 @@ export default function WorkspacePage() {
                                                             <p className="text-xs text-slate-400">{formatBytes(file.size)}</p>
                                                         </div>
                                                     </div>
-                                                    <a
-                                                        href={getFileUrl(file.storage_path)}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
+                                                    <button
+                                                        onClick={() => handleDownloadFile(file)}
+                                                        disabled={downloadingFileId === file.id}
                                                         className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#136dec]/10 text-[#136dec] text-sm font-semibold hover:bg-[#136dec]/20 transition"
                                                     >
                                                         <span className="material-symbols-outlined text-sm">download</span>
-                                                        Download
-                                                    </a>
+                                                        {downloadingFileId === file.id ? 'Preparing...' : 'Download'}
+                                                    </button>
                                                 </li>
                                             ))}
                                         </ul>
