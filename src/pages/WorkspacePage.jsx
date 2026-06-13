@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { getShare, updateShareContent, getShareFiles, uploadFile, getSignedFileUrl, canUploadFile, getShareStorageUsed, verifyPassword } from '../lib/database'
+import { getShare, updateShareContent, getShareFiles, uploadFile, getSignedFileUrl, canUploadFile, getShareStorageUsed, verifyPassword, deleteSession } from '../lib/database'
 import PasswordModal from '../components/PasswordModal'
 
 export default function WorkspacePage() {
@@ -19,6 +19,7 @@ export default function WorkspacePage() {
     const [isAuthenticated, setIsAuthenticated] = useState(false)
     const [sharePassword, setSharePassword] = useState('')
     const [downloadingFileId, setDownloadingFileId] = useState(null)
+    const [deletingSession, setDeletingSession] = useState(false)
     const [error, setError] = useState('')
 
     useEffect(() => {
@@ -158,6 +159,26 @@ export default function WorkspacePage() {
         }
     }
 
+    const handleDeleteSession = async () => {
+        const confirmed = window.confirm('Are you sure you want to delete this session? This action cannot be undone.')
+        if (!confirmed) return
+
+        setError('')
+        setDeletingSession(true)
+
+        try {
+            const requiresPassword = Boolean(share?.password_hash)
+            await deleteSession(accessCode, requiresPassword ? sharePassword : null)
+            window.alert('Your session is deleted')
+            navigate('/')
+        } catch (err) {
+            console.error(err)
+            setError('Failed to delete session. Please try again.')
+        } finally {
+            setDeletingSession(false)
+        }
+    }
+
     const formatBytes = (bytes) => {
         if (bytes === 0) return '0 B'
         const k = 1024
@@ -233,6 +254,14 @@ export default function WorkspacePage() {
                     >
                         <span className="material-symbols-outlined text-lg">share</span>
                         Share Code
+                    </button>
+                    <button
+                        onClick={handleDeleteSession}
+                        disabled={deletingSession}
+                        className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-sm font-semibold hover:bg-red-200 dark:hover:bg-red-900/50 transition disabled:opacity-50"
+                    >
+                        <span className="material-symbols-outlined text-lg">delete</span>
+                        {deletingSession ? 'Deleting...' : 'Delete Session'}
                     </button>
                 </div>
             </header>

@@ -1,7 +1,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 type RequestPayload = {
-    action: 'sign' | 'cleanup'
+    action: 'sign' | 'cleanup' | 'delete-session'
     accessCode?: string
     storagePath?: string
     password?: string | null
@@ -17,11 +17,18 @@ if (!supabaseUrl || !serviceRoleKey) {
 
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey)
 
+const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cleanup-secret',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS'
+}
+
 const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), {
         status,
         headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            ...corsHeaders
         }
     })
 
@@ -32,6 +39,10 @@ const sha256Hex = async (value: string) => {
 }
 
 Deno.serve(async (req) => {
+    if (req.method === 'OPTIONS') {
+        return new Response('ok', { headers: corsHeaders })
+    }
+
     if (req.method !== 'POST') {
         return json({ error: 'Method not allowed' }, 405)
     }
@@ -155,6 +166,70 @@ Deno.serve(async (req) => {
         return json({
             signedUrl: signedData.signedUrl,
             expiresIn: expiresInSeconds
+        })
+    }
+
+    if (payload.action === 'delete-session') {
+        const accessCode = payload.accessCode?.trim().toUpperCase()
+        const password = payload.password?.trim() ?? ''
+
+        if (!accessCode) {
+            return json({ error: 'Missing accessCode' }, 400)
+        }
+
+        const { data: share, error: shareError } = await supabaseAdmin
+            .from('shares')
+            .select('id, password_hash')
+            .eq('access_code', accessCode)
+            .single()
+
+        if (shareError || !share) {
+            return json({ error: 'Share not found' }, 404)
+        }
+
+        if (share.password_hash) {
+            if (!password) {
+                return json({ error: 'Password required' }, 401)
+            }
+            const passwordHash = await sha256Hex(password)
+            if (passwordHash !== share.password_hash) {
+                return json({ error: 'Invalid password' }, 401)
+            }
+        }
+
+        const { data: files, error: filesError } = await supabaseAdmin
+            .from('files')
+            .select('storage_path')
+            .eq('share_id', share.id)
+
+        if (filesError) {
+            return json({ error: `Failed to load session files: ${filesError.message}` }, 500)
+        }
+
+        const paths = (files ?? [])
+            .map((file: { storage_path?: string }) => file.storage_path)
+            .filter((path): path is string => typeof path === 'string' && path.length > 0)
+
+        if (paths.length > 0) {
+            const { error: removeError } = await supabaseAdmin.storage.from('shares').remove(paths)
+            if (removeError) {
+                return json({ error: `Failed to remove session storage objects: ${removeError.message}` }, 500)
+            }
+        }
+
+        const { error: deleteShareError } = await supabaseAdmin
+            .from('shares')
+            .delete()
+            .eq('id', share.id)
+
+        if (deleteShareError) {
+            return json({ error: `Failed to delete session: ${deleteShareError.message}` }, 500)
+        }
+
+        return json({
+            ok: true,
+            deletedShare: true,
+            deletedFiles: paths.length
         })
     }
 

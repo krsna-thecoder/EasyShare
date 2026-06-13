@@ -170,6 +170,49 @@ export async function getSignedFileUrl(accessCode, storagePath, password = null)
 }
 
 /**
+ * Delete a session (share + associated files)
+ */
+export async function deleteSession(accessCode, password = null) {
+    const share = await getShare(accessCode)
+    if (!share) {
+        throw new Error('Share not found')
+    }
+
+    // If password-protected, verify before destructive operation.
+    if (share.password_hash) {
+        if (!password) {
+            throw new Error('Password required to delete this session')
+        }
+        const valid = await verifyPassword(accessCode, password)
+        if (!valid) {
+            throw new Error('Invalid password')
+        }
+    }
+
+    const files = await getShareFiles(share.id)
+    const paths = files
+        .map((file) => file.storage_path)
+        .filter((path) => typeof path === 'string' && path.length > 0)
+
+    if (paths.length > 0) {
+        const { error: storageError } = await supabase.storage
+            .from('shares')
+            .remove(paths)
+        if (storageError) throw storageError
+    }
+
+    // files rows are removed via ON DELETE CASCADE on shares.id -> files.share_id
+    const { error: shareDeleteError } = await supabase
+        .from('shares')
+        .delete()
+        .eq('access_code', accessCode.toUpperCase())
+
+    if (shareDeleteError) throw shareDeleteError
+
+    return { ok: true, deletedFiles: paths.length }
+}
+
+/**
  * Delete a file
  */
 export async function deleteFile(fileId, storagePath) {
