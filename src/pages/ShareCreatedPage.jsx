@@ -1,17 +1,41 @@
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { getShare } from '../lib/database'
 
 export default function ShareCreatedPage() {
-    const { accessCode } = useParams()
     const navigate = useNavigate()
+    const [accessCode] = useState(() => sessionStorage.getItem('accessCode'))
     const [share, setShare] = useState(null)
     const [copied, setCopied] = useState(false)
     const [timeLeft, setTimeLeft] = useState('')
 
     useEffect(() => {
-        loadShare()
-    }, [accessCode])
+        if (!accessCode) {
+            navigate('/')
+            return
+        }
+
+        let cancelled = false
+
+        getShare(accessCode)
+            .then((shareData) => {
+                if (cancelled) return
+                if (!shareData) {
+                    navigate('/')
+                    return
+                }
+                setShare(shareData)
+            })
+            .catch((err) => {
+                if (cancelled) return
+                console.error(err)
+                navigate('/')
+            })
+
+        return () => {
+            cancelled = true
+        }
+    }, [accessCode, navigate])
 
     useEffect(() => {
         if (!share) return
@@ -35,20 +59,6 @@ export default function ShareCreatedPage() {
         const interval = setInterval(updateTimeLeft, 60000)
         return () => clearInterval(interval)
     }, [share])
-
-    const loadShare = async () => {
-        try {
-            const shareData = await getShare(accessCode)
-            if (!shareData) {
-                navigate('/')
-                return
-            }
-            setShare(shareData)
-        } catch (err) {
-            console.error(err)
-            navigate('/')
-        }
-    }
 
     const copyToClipboard = () => {
         navigator.clipboard.writeText(accessCode)
@@ -174,14 +184,7 @@ export default function ShareCreatedPage() {
                     </div>
 
                     {/* Action Button */}
-                    <div className="flex px-4 py-8 justify-center gap-3 flex-wrap">
-                        <Link
-                            to={`/workspace/${accessCode}`}
-                            className="flex min-w-[240px] max-w-full cursor-pointer items-center justify-center overflow-hidden rounded-lg h-14 px-8 bg-[#136dec] hover:bg-[#136dec]/90 text-white gap-3 text-base font-bold leading-normal tracking-[0.015em] transition-all shadow-lg shadow-[#136dec]/20"
-                        >
-                            <span className="material-symbols-outlined">arrow_forward</span>
-                            <span className="truncate">Go to Workspace</span>
-                        </Link>
+                    <div className="flex px-4 py-8 justify-center">
                         <Link
                             to="/"
                             className="flex min-w-[140px] max-w-full cursor-pointer items-center justify-center overflow-hidden rounded-lg h-14 px-6 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 gap-2 text-base font-bold leading-normal transition-all"

@@ -34,7 +34,9 @@ export default function LandingPage() {
                 setPendingShare(share)
                 setShowPasswordModal(true)
             } else {
-                navigate(`/workspace/${share.access_code}`)
+                sessionStorage.setItem('accessCode', share.access_code)
+                sessionStorage.removeItem('sharePassword')
+                navigate('/workspace')
             }
         } catch (err) {
             setError('Failed to retrieve share. Please try again.')
@@ -50,7 +52,9 @@ export default function LandingPage() {
         const isValid = await verifyPassword(pendingShare.access_code, password)
         if (isValid) {
             setShowPasswordModal(false)
-            navigate(`/workspace/${pendingShare.access_code}`)
+            sessionStorage.setItem('accessCode', pendingShare.access_code)
+            sessionStorage.setItem('sharePassword', password)
+            navigate('/workspace')
         } else {
             return 'Incorrect password'
         }
@@ -61,7 +65,9 @@ export default function LandingPage() {
         try {
             const share = await createShare(options)
             setShowCreateModal(false)
-            navigate(`/workspace/${share.access_code}`)
+            sessionStorage.setItem('accessCode', share.access_code)
+            sessionStorage.setItem('sharePassword', options.password || '')
+            navigate('/workspace')
         } catch (err) {
             console.error(err)
             setError('Failed to create share. Please try again.')

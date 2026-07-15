@@ -11,8 +11,8 @@ createRoot(document.getElementById('root')).render(
     <HashRouter>
       <Routes>
         <Route path="/" element={<LandingPage />} />
-        <Route path="/workspace/:accessCode" element={<WorkspacePage />} />
-        <Route path="/share-created/:accessCode" element={<ShareCreatedPage />} />
+        <Route path="/workspace" element={<WorkspacePage />} />
+        <Route path="/share-created" element={<ShareCreatedPage />} />
       </Routes>
     </HashRouter>
   </StrictMode>,

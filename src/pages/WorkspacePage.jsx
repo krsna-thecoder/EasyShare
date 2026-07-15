@@ -1,30 +1,61 @@
-import { useState, useEffect } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
+import DOMPurify from 'dompurify'
 import { getShare, updateShareContent, getShareFiles, uploadFile, getSignedFileUrl, canUploadFile, getShareStorageUsed, verifyPassword, deleteSession } from '../lib/database'
 import PasswordModal from '../components/PasswordModal'
+import ConfirmModal from '../components/ConfirmModal'
 
 export default function WorkspacePage() {
-    const { accessCode } = useParams()
     const navigate = useNavigate()
+
+    // Shares created before the rich-text editor was introduced store plain
+    // text in `content`. Detect that case and convert it to safe, escaped
+    // HTML (preserving line breaks) so it still displays correctly inside
+    // the contentEditable editor instead of collapsing onto one line.
+    // All content (legacy plain text or rich HTML) is run through
+    // DOMPurify since `content` can be written directly via the API and
+    // is otherwise untrusted, anonymous, user-controlled HTML.
+    const toDisplayHtml = (value) => {
+        if (!value) return ''
+        const looksLikeHtml = /<\/?[a-z][\s\S]*>/i.test(value)
+        const html = looksLikeHtml
+            ? value
+            : (() => {
+                const div = document.createElement('div')
+                div.textContent = value
+                return div.innerHTML.replace(/\n/g, '<br>')
+            })()
+        return DOMPurify.sanitize(html)
+    }
+    const [accessCode] = useState(() => sessionStorage.getItem('accessCode'))
     const [share, setShare] = useState(null)
     const [files, setFiles] = useState([])
     const [content, setContent] = useState('')
     const [activeTab, setActiveTab] = useState('text')
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
+    const [copied, setCopied] = useState(false)
+    const [saved, setSaved] = useState(false)
     const [uploading, setUploading] = useState(false)
     const [storageUsed, setStorageUsed] = useState(0)
     const [timeLeft, setTimeLeft] = useState('')
     const [showPasswordModal, setShowPasswordModal] = useState(false)
     const [isAuthenticated, setIsAuthenticated] = useState(false)
-    const [sharePassword, setSharePassword] = useState('')
+    const [sharePassword, setSharePassword] = useState(() => sessionStorage.getItem('sharePassword') || '')
     const [downloadingFileId, setDownloadingFileId] = useState(null)
     const [deletingSession, setDeletingSession] = useState(false)
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
     const [error, setError] = useState('')
+    const editorRef = useRef(null)
+    const editorSyncedRef = useRef(false)
 
     useEffect(() => {
-        loadShare()
-    }, [accessCode])
+        if (!accessCode) {
+            navigate('/')
+            return
+        }
+        loadShare(accessCode)
+    }, [accessCode, navigate])
 
     useEffect(() => {
         if (!share) return
@@ -50,9 +81,22 @@ export default function WorkspacePage() {
         return () => clearInterval(interval)
     }, [share])
 
-    const loadShare = async () => {
+    // Sync the contentEditable editor's HTML once after the share/content
+    // finishes loading and the editor has mounted. We intentionally do this
+    // only once per load (not on every `content` change) so we don't clobber
+    // the user's cursor position or in-progress edits while typing.
+    useEffect(() => {
+        if (loading || showPasswordModal) return
+        if (editorSyncedRef.current) return
+        if (editorRef.current) {
+            editorRef.current.innerHTML = content || ''
+            editorSyncedRef.current = true
+        }
+    }, [loading, showPasswordModal, content])
+
+    const loadShare = async (code) => {
         try {
-            const shareData = await getShare(accessCode)
+            const shareData = await getShare(code)
             if (!shareData) {
                 navigate('/')
                 return
@@ -66,7 +110,7 @@ export default function WorkspacePage() {
             }
 
             setShare(shareData)
-            setContent(shareData.content || '')
+            setContent(toDisplayHtml(shareData.content))
 
             const filesData = await getShareFiles(shareData.id)
             setFiles(filesData)
@@ -86,9 +130,10 @@ export default function WorkspacePage() {
         const isValid = await verifyPassword(accessCode, password)
         if (isValid) {
             setSharePassword(password)
+            sessionStorage.setItem('sharePassword', password)
             setIsAuthenticated(true)
             setShowPasswordModal(false)
-            loadShare()
+            loadShare(accessCode)
         } else {
             return 'Incorrect password'
         }
@@ -97,13 +142,55 @@ export default function WorkspacePage() {
     const handleSaveContent = async () => {
         setSaving(true)
         try {
-            await updateShareContent(accessCode, content)
+            const rawHtml = editorRef.current ? editorRef.current.innerHTML : content
+            const html = DOMPurify.sanitize(rawHtml)
+            await updateShareContent(accessCode, html)
+            setContent(html)
+            setSaved(true)
+            setTimeout(() => setSaved(false), 2000)
         } catch (err) {
             console.error(err)
             setError('Failed to save content')
         } finally {
             setSaving(false)
         }
+    }
+
+    const handleCopyAll = async () => {
+        try {
+            const html = editorRef.current ? editorRef.current.innerHTML : content
+            const plainText = editorRef.current ? editorRef.current.innerText : content
+
+            if (typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
+                const item = new ClipboardItem({
+                    'text/html': new Blob([html], { type: 'text/html' }),
+                    'text/plain': new Blob([plainText], { type: 'text/plain' })
+                })
+                await navigator.clipboard.write([item])
+            } else {
+                await navigator.clipboard.writeText(plainText)
+            }
+
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
+        } catch (err) {
+            console.error(err)
+            setError('Failed to copy content')
+        }
+    }
+
+    const handleFormat = (command) => {
+        if (editorRef.current) {
+            editorRef.current.focus()
+        }
+        document.execCommand(command)
+        if (editorRef.current) {
+            setContent(editorRef.current.innerHTML)
+        }
+    }
+
+    const handleEditorInput = (e) => {
+        setContent(e.currentTarget.innerHTML)
     }
 
     const handleFileUpload = async (e) => {
@@ -150,7 +237,23 @@ export default function WorkspacePage() {
                 requiresPassword ? sharePassword : null
             )
 
-            window.open(signedUrl, '_blank', 'noopener,noreferrer')
+            // Fetch the file as a blob so we can force a real download
+            // (a plain <a download> or window.open on a cross-origin signed
+            // URL gets rendered inline by the browser instead of saved).
+            const response = await fetch(signedUrl)
+            if (!response.ok) {
+                throw new Error(`Download request failed with status ${response.status}`)
+            }
+            const blob = await response.blob()
+            const blobUrl = URL.createObjectURL(blob)
+
+            const link = document.createElement('a')
+            link.href = blobUrl
+            link.download = file.name
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            URL.revokeObjectURL(blobUrl)
         } catch (err) {
             console.error(err)
             setError('Failed to download file. Please verify access and try again.')
@@ -159,21 +262,24 @@ export default function WorkspacePage() {
         }
     }
 
-    const handleDeleteSession = async () => {
-        const confirmed = window.confirm('Are you sure you want to delete this session? This action cannot be undone.')
-        if (!confirmed) return
+    const handleDeleteSession = () => {
+        setShowDeleteConfirm(true)
+    }
 
+    const handleConfirmDeleteSession = async () => {
         setError('')
         setDeletingSession(true)
 
         try {
             const requiresPassword = Boolean(share?.password_hash)
             await deleteSession(accessCode, requiresPassword ? sharePassword : null)
-            window.alert('Your session is deleted')
+            sessionStorage.removeItem('accessCode')
+            sessionStorage.removeItem('sharePassword')
             navigate('/')
         } catch (err) {
             console.error(err)
             setError('Failed to delete session. Please try again.')
+            setShowDeleteConfirm(false)
         } finally {
             setDeletingSession(false)
         }
@@ -249,7 +355,7 @@ export default function WorkspacePage() {
 
                 <div className="flex items-center gap-4">
                     <button
-                        onClick={() => navigate(`/share-created/${accessCode}`)}
+                        onClick={() => navigate('/share-created')}
                         className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm font-semibold hover:bg-slate-200 transition"
                     >
                         <span className="material-symbols-outlined text-lg">share</span>
@@ -339,8 +445,14 @@ export default function WorkspacePage() {
                                         <p className="text-sm text-slate-500">Share rich text notes instantly.</p>
                                     </div>
                                     <div className="flex items-center gap-3">
+                                        {copied && (
+                                            <span className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-600 dark:text-green-400 text-sm font-bold">
+                                                <span className="material-symbols-outlined text-lg">check</span>
+                                                Copied
+                                            </span>
+                                        )}
                                         <button
-                                            onClick={() => navigator.clipboard.writeText(content)}
+                                            onClick={handleCopyAll}
                                             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-sm font-bold hover:bg-slate-50 transition shadow-sm"
                                         >
                                             <span className="material-symbols-outlined text-lg">content_copy</span>
@@ -354,26 +466,52 @@ export default function WorkspacePage() {
                                             <span className="material-symbols-outlined text-lg">save</span>
                                             {saving ? 'Saving...' : 'Save Changes'}
                                         </button>
+                                        {saved && (
+                                            <span className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-600 dark:text-green-400 text-sm font-bold">
+                                                <span className="material-symbols-outlined text-lg">check</span>
+                                                Saved
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
 
                                 <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden min-h-[500px] flex flex-col">
                                     <div className="px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex items-center gap-1">
-                                        <button className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400">
+                                        <button
+                                            type="button"
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={() => handleFormat('bold')}
+                                            className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400"
+                                            title="Bold"
+                                        >
                                             <span className="material-symbols-outlined">format_bold</span>
                                         </button>
-                                        <button className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400">
+                                        <button
+                                            type="button"
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={() => handleFormat('italic')}
+                                            className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400"
+                                            title="Italic"
+                                        >
                                             <span className="material-symbols-outlined">format_italic</span>
                                         </button>
-                                        <button className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400">
+                                        <button
+                                            type="button"
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={() => handleFormat('insertUnorderedList')}
+                                            className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400"
+                                            title="Bullet List"
+                                        >
                                             <span className="material-symbols-outlined">format_list_bulleted</span>
                                         </button>
                                     </div>
-                                    <textarea
-                                        value={content}
-                                        onChange={(e) => setContent(e.target.value)}
-                                        className="flex-1 p-8 bg-transparent border-none focus:ring-0 resize-none text-slate-800 dark:text-slate-200 placeholder:text-slate-400"
-                                        placeholder="Start typing your content here..."
+                                    <div
+                                        ref={editorRef}
+                                        contentEditable
+                                        suppressContentEditableWarning
+                                        onInput={handleEditorInput}
+                                        data-placeholder="Start typing your content here..."
+                                        className="flex-1 p-8 bg-transparent focus:outline-none text-slate-800 dark:text-slate-200 empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 overflow-y-auto"
                                     />
                                 </div>
                             </>
@@ -453,6 +591,18 @@ export default function WorkspacePage() {
                     </div>
                 </main>
             </div>
+
+            {showDeleteConfirm && (
+                <ConfirmModal
+                    title="Delete this session?"
+                    message="This will permanently delete the shared text and all uploaded files. This action cannot be undone."
+                    confirmLabel="Yes, Delete"
+                    cancelLabel="No, Cancel"
+                    loading={deletingSession}
+                    onConfirm={handleConfirmDeleteSession}
+                    onCancel={() => setShowDeleteConfirm(false)}
+                />
+            )}
         </div>
     )
 }

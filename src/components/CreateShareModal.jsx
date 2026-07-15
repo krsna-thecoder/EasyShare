@@ -3,7 +3,7 @@ import { useState } from 'react'
 export default function CreateShareModal({ onSubmit, onCancel, loading }) {
     const [password, setPassword] = useState('')
     const [showPassword, setShowPassword] = useState(false)
-    const [expiryHours, setExpiryHours] = useState(24)
+    const [expiryHours, setExpiryHours] = useState(1)
 
     const handleSubmit = (e) => {
         e.preventDefault()
