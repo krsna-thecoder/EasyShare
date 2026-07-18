@@ -103,6 +103,32 @@ export default function WorkspacePage() {
             }
 
             if (shareData.password_hash && !isAuthenticated) {
+                // A password may already have been captured moments ago —
+                // either by the creator setting one in CreateShareModal, or
+                // by the user entering it in the landing page's retrieve
+                // flow. Verify it silently instead of prompting again.
+                const storedPassword = sessionStorage.getItem('sharePassword')
+                if (storedPassword) {
+                    const isValid = await verifyPassword(code, storedPassword)
+                    if (isValid) {
+                        setIsAuthenticated(true)
+                        setSharePassword(storedPassword)
+                        setShare(shareData)
+                        setContent(toDisplayHtml(shareData.content))
+
+                        const filesData = await getShareFiles(shareData.id)
+                        setFiles(filesData)
+
+                        const used = await getShareStorageUsed(shareData.id)
+                        setStorageUsed(used)
+
+                        setLoading(false)
+                        return
+                    }
+                    // Stored password is stale/incorrect — fall through to prompt.
+                    sessionStorage.removeItem('sharePassword')
+                }
+
                 setShowPasswordModal(true)
                 setShare(shareData)
                 setLoading(false)
