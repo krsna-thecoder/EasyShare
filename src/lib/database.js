@@ -54,6 +54,45 @@ export async function createShare({ content = '', password = null, expiryHours =
 }
 
 /**
+ * Get the global "Start New Share" click counter.
+ * Returns null if it can't be read (e.g. Supabase not configured), so the
+ * UI can fail gracefully without breaking the page.
+ */
+export async function getShareCount() {
+    if (!supabase) return null
+
+    const { data, error } = await supabase
+        .from('stats')
+        .select('value')
+        .eq('key', 'share_button_clicks')
+        .single()
+
+    if (error) {
+        console.error('Failed to load share count:', error)
+        return null
+    }
+
+    return Number(data?.value ?? 0)
+}
+
+/**
+ * Atomically increment the global share-click counter and return the new value.
+ * Returns null on failure so callers can fall back to an optimistic value.
+ */
+export async function incrementShareCount() {
+    if (!supabase) return null
+
+    const { data, error } = await supabase.rpc('increment_share_count')
+
+    if (error) {
+        console.error('Failed to increment share count:', error)
+        return null
+    }
+
+    return Number(data ?? 0)
+}
+
+/**
  * Get a share by access code
  */
 export async function getShare(accessCode) {

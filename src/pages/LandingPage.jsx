@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import accessCodeBadge from '../assets/accesscode-badge1.png'
 import { useNavigate } from 'react-router-dom'
-import { createShare, getShare, verifyPassword } from '../lib/database'
+import { createShare, getShare, verifyPassword, getShareCount, incrementShareCount } from '../lib/database'
 import PasswordModal from '../components/PasswordModal'
 import CreateShareModal from '../components/CreateShareModal'
 import InfoModal from '../components/InfoModal'
@@ -124,6 +124,31 @@ export default function LandingPage() {
     const [pendingShare, setPendingShare] = useState(null)
     const [infoModal, setInfoModal] = useState(null)
     const [showSupportModal, setShowSupportModal] = useState(false)
+    const [shareCount, setShareCount] = useState(null)
+
+    useEffect(() => {
+        let cancelled = false
+        getShareCount().then((count) => {
+            if (!cancelled && typeof count === 'number') {
+                setShareCount(count)
+            }
+        })
+        return () => {
+            cancelled = true
+        }
+    }, [])
+
+    const handleStartNewShare = () => {
+        setShowCreateModal(true)
+        // Optimistically bump the counter so it feels instant...
+        setShareCount((current) => (typeof current === 'number' ? current + 1 : current))
+        // ...then reconcile with the authoritative value from the server.
+        incrementShareCount().then((value) => {
+            if (typeof value === 'number') {
+                setShareCount(value)
+            }
+        })
+    }
 
     const handleRetrieve = async () => {
         if (!accessCode.trim()) {
@@ -268,7 +293,7 @@ export default function LandingPage() {
 
                                 <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 pt-4">
                                     <button
-                                        onClick={() => setShowCreateModal(true)}
+                                        onClick={handleStartNewShare}
                                         className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl font-bold transition-all"
                                     >
                                         <span className="material-symbols-outlined">add_circle</span>
@@ -339,11 +364,20 @@ export default function LandingPage() {
             {/* Footer */}
             <footer className="border-t border-slate-200 dark:border-slate-800 py-12">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row justify-between items-center gap-6">
-                    <div className="flex items-center gap-2 opacity-50">
-                        <div className="w-6 h-6 bg-[#136dec] rounded flex items-center justify-center text-white">
-                            <span className="material-symbols-outlined text-[12px]">grid_view</span>
+                    <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2 opacity-50">
+                            <div className="w-6 h-6 bg-[#136dec] rounded flex items-center justify-center text-white">
+                                <span className="material-symbols-outlined text-[12px]">grid_view</span>
+                            </div>
+                            <span className="font-bold">AccessCode</span>
                         </div>
-                        <span className="font-bold">AccessCode</span>
+                        <div className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400" title="Users who have used AccessCode">
+                            <span className="material-symbols-outlined text-[#136dec] text-[18px]">group</span>
+                            <span>User Count:</span>
+                            <span className="font-extrabold text-[#136dec] tabular-nums">
+                                {shareCount != null ? shareCount.toLocaleString() : '—'}
+                            </span>
+                        </div>
                     </div>
                     <div className="flex gap-8 text-sm text-slate-500 dark:text-slate-400">
                         <button type="button" onClick={() => setInfoModal(PRIVACY_INFO)} className="hover:text-[#136dec]">Privacy</button>
@@ -351,7 +385,7 @@ export default function LandingPage() {
                         <button type="button" onClick={() => setShowSupportModal(true)} className="hover:text-[#136dec]">Support</button>
                     </div>
                     <div className="text-sm text-slate-400">
-                        © 2024 AccessCode. No account, no worries.
+                        © 2026 AccessCode. No account, no worries.
                     </div>
                 </div>
             </footer>
