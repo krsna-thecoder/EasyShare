@@ -60,10 +60,37 @@ export default function ShareCreatedPage() {
         return () => clearInterval(interval)
     }, [share])
 
-    const copyToClipboard = () => {
-        navigator.clipboard.writeText(accessCode)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
+    const copyToClipboard = async () => {
+        if (!accessCode) return
+
+        let success = false
+
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(accessCode)
+                success = true
+            } else {
+                // Fallback for non-secure contexts (e.g. plain http) or older browsers
+                const textarea = document.createElement('textarea')
+                textarea.value = accessCode
+                textarea.style.position = 'fixed'
+                textarea.style.opacity = '0'
+                textarea.style.pointerEvents = 'none'
+                document.body.appendChild(textarea)
+                textarea.focus()
+                textarea.select()
+                success = document.execCommand('copy')
+                document.body.removeChild(textarea)
+            }
+        } catch (err) {
+            console.error('Failed to copy access code:', err)
+            success = false
+        }
+
+        if (success) {
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
+        }
     }
 
     if (!share) {
